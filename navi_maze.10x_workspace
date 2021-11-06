@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<N10X>
+	<Workspace>
+		<FileTypes>All Code Files</FileTypes>
+		<ExcludeFilters></ExcludeFilters>
+		<SyncFiles>true</SyncFiles>
+		<Recursive>true</Recursive>
+		<IsVirtual>false</IsVirtual>
+		<IsFolder>false</IsFolder>
+		<BuildCommand>build-windows.bat -d</BuildCommand>
+		<RebuildCommand>build-windows.bat -d -c</RebuildCommand>
+		<BuildFileCommand></BuildFileCommand>
+		<CleanCommand></CleanCommand>
+		<RunCommand>$(WorkspaceDirectory)\build-windows.bat -d -r</RunCommand>
+		<DebugCommand></DebugCommand>
+		<ExePathCommand></ExePathCommand>
+		<Configurations></Configurations>
+		<Platforms></Platforms>
+		<AdditionalIncludePaths></AdditionalIncludePaths>
+		<Children></Children>
+	</Workspace>
+</N10X>
