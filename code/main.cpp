@@ -6,11 +6,17 @@
 #include <time.h>
 
 /**
+ * DONE:
+ * Traingle generation
+ * Verifying if point in triangle
+ * 
+ * Current:
+ * Triangle rotation
+ * 
  * TODO(talha)
  * Understanding how texture rendering works:
  * * Look into glfw since raylib uses glfw for any subsequent
  * * drawing as a means of using opengl
- * Understanding how to do collision detection
  * Understanding triangle coloring
  */
 const int screenWidth = 800;
@@ -23,12 +29,19 @@ int triangleMaxWidth = (screenWidth / 4) + 50;
 int heightRange = triangleMaxHeight - triangleMinHeight;
 int widthRange = triangleMaxWidth - triangleMinWidth;
 const int trianglesSz = 8;
+float minAngle = -90;
+float maxAngle = 90;
+float rotationRate = .05;
 
 #define Abs(x) (x < 0 ? x*-1: x)
 #define Square(x) (x*x)
 #define Det(u, v) ((u.x*v.y) - (u.y*v.x))
+#define Pi 3.141592653589793
+#define RadToDeg(rad) (rad*180/Pi)
 #define ORIENT_TOP_BOT 0
 #define ORIENT_BOT_TOP 1
+#define TRANS_OP_SUB -1.0
+#define TRANS_OP_ADD 1.0
 
 /**
  * Note(Talha): 
@@ -44,8 +57,15 @@ struct NaviTriangle {
 	bool draw; // should draw or not?
 	Vector2 v1; // Meant to store coordinates that are computed from width and height
 	Vector2 v2;
-	Vector2 v3; // 38 bytes
-};
+	Vector2 v3;
+	float movementRate; // how quickly object should move on screen
+	
+	// things only for rotation
+	int rotationDir = -1; // which direction to rotate object
+	bool hitMin = false; // has object reached min angle in rotation
+	bool hitMax = false; // has object reached max angle in rotation
+	float currentAngle = 0;
+}; // 52 bytes
 
 /**
  * NOTE(Talha) DDA Line Drawing Algorithm, SIMPLE VERSION
@@ -84,14 +104,14 @@ void DDALineDrawing(Vector2 startPoint, Vector2 endPoint) {
 /**
 	* Computes centroid from 3 triangle points
 	*/
-Vector2 computeTriangleCentroid(NaviTriangle triangle) {
+Vector2 ComputeTriangleCentroid(NaviTriangle triangle) {
 	float x = (triangle.v1.x + triangle.v2.x + triangle.v3.x)/3;
 	float y = (triangle.v1.y + triangle.v2.y + triangle.v3.y)/3;
 	Vector2 centroid = {x, y};
 	return centroid;
 }
 
-void computeRawTriangleCoords(NaviTriangle *triangle) {
+void ComputeRawTriangleCoords(NaviTriangle *triangle) {
 	float midpoint;
 	float xMax = screenWidth - triangle->inset;
 	Vector2 v1, v2, v3;
@@ -116,7 +136,7 @@ void computeRawTriangleCoords(NaviTriangle *triangle) {
 	}
 }
 
-void drawTriangle(NaviTriangle *triangle) {
+void DrawTriangle(NaviTriangle *triangle) {
 	// counter clock-wise line-drawing
 	// a->b, b->c, c->a
 	DDALineDrawing(triangle->v1, triangle->v2);
@@ -124,7 +144,20 @@ void drawTriangle(NaviTriangle *triangle) {
 	DDALineDrawing(triangle->v3, triangle->v1);
 }
 
-void randomizeTriangleDim( NaviTriangle *triangle) {
+/**
+	* Draw triangles on screen that have space to be drawn
+	*/
+void TrianglesDraw(NaviTriangle triangles[trianglesSz]) {
+	int sz = trianglesSz;
+	for (int i = 0; i < sz; i++) {
+		NaviTriangle triangle = triangles[i];
+		if (triangle.draw) {
+			DrawTriangle(&triangle);
+		}
+	}
+}
+
+void RandomizeTriangleDim( NaviTriangle *triangle) {
 	
 	int rWidth = (rand() % widthRange) + triangleMinWidth;
 	int rHeight = (rand() % heightRange) + triangleMinHeight;
@@ -135,15 +168,16 @@ void randomizeTriangleDim( NaviTriangle *triangle) {
 /**
  * Initialize triangles array, and compute initial dims
  */
-void initializeTriangles(NaviTriangle triangles[trianglesSz]) {
+void InitializeTriangles(NaviTriangle triangles[trianglesSz]) {
 	bool dir = ORIENT_TOP_BOT; // also false, just need to keep flipping this
 	int sz = trianglesSz;
 	for (int i=0; i<sz; i++) {
 		NaviTriangle triangle = { i, NULL, NULL, NULL, dir, NULL,
 								NULL, NULL, NULL};
 		triangle.draw = i == 0 ? true : false; // only draw the first triangle initially
-		randomizeTriangleDim(&triangle);
+		RandomizeTriangleDim(&triangle);
 		triangle.inset = -triangle.width;
+		triangle.movementRate = 5;
 		triangles[i] = triangle;
 		// flip dir
 		dir = !dir;
@@ -156,21 +190,21 @@ void initializeTriangles(NaviTriangle triangles[trianglesSz]) {
  * * switches draw OFF
  * * it recomputes random dims, to keep the game flow going
  */
-void trianglesMoveOrRecompute(NaviTriangle triangles[trianglesSz]) {
+void TrianglesMoveOrRecompute(NaviTriangle triangles[trianglesSz]) {
 	int sz = trianglesSz;
 	for (int i = 0; i < sz; i++) {
 		NaviTriangle triangle = triangles[i];
 		if (triangle.draw) {
 			if (triangle.inset < screenWidth) {
-				triangle.inset += 5;
+				triangle.inset += triangle.movementRate;
 			} else {
 				triangle.draw = false;
-				randomizeTriangleDim(&triangle);
+				RandomizeTriangleDim(&triangle);
 				// we want an effect of triangle coming from right of screen instead of spawning, 
 				// give inset -width
 				triangle.inset = -triangle.width;
 			}
-			computeRawTriangleCoords(&triangle);
+			ComputeRawTriangleCoords(&triangle);
 			triangles[i] = triangle;
 		}
 	}
@@ -183,7 +217,7 @@ void trianglesMoveOrRecompute(NaviTriangle triangles[trianglesSz]) {
  * * can make the width between triangles less as speed increases
  * * to add a layer of difficulty
  */
-void trianglesCheckDrawSpace(NaviTriangle triangles[trianglesSz]) {
+void TrianglesCheckDrawSpace(NaviTriangle triangles[trianglesSz]) {
 	int sz = trianglesSz;
 	if (sz == 1) return;
 	for (int i = 0; i < sz; i++) {
@@ -204,20 +238,7 @@ void trianglesCheckDrawSpace(NaviTriangle triangles[trianglesSz]) {
 	}
 }
 
-/**
- * Draw triangles on screen that have space to be drawn
- */
-void trianglesDraw(NaviTriangle triangles[trianglesSz]) {
-	int sz = trianglesSz;
-	for (int i = 0; i < sz; i++) {
-		NaviTriangle triangle = triangles[i];
-		if (triangle.draw) {
-			drawTriangle(&triangle);
-		}
-	}
-}
-
-float computeDistanceBwPoints(Vector2 v1, Vector2 v2) {
+float ComputeDistanceBwPoints(Vector2 v1, Vector2 v2) {
 	float x_comp = Square((v2.x - v1.x));
 	float y_comp = Square((v2.y - v1.y));
 	float dist = sqrt(x_comp + y_comp);
@@ -230,12 +251,12 @@ float computeDistanceBwPoints(Vector2 v1, Vector2 v2) {
  */
 NaviTriangle GetTriangleClosest(NaviTriangle triangles[trianglesSz], NaviTriangle playerTriangle) {
 	NaviTriangle closestTriangle;
-	Vector2 playerCentroid = computeTriangleCentroid(playerTriangle);
+	Vector2 playerCentroid = ComputeTriangleCentroid(playerTriangle);
 	float minDiff = INT_MAX;
 	for (int i = 0; i < trianglesSz; i++) {
 		NaviTriangle triangle = triangles[i];
-		Vector2 triangleCentroid = computeTriangleCentroid(triangle);
-		float pointDiff = computeDistanceBwPoints(playerCentroid, triangleCentroid);
+		Vector2 triangleCentroid = ComputeTriangleCentroid(triangle);
+		float pointDiff = ComputeDistanceBwPoints(playerCentroid, triangleCentroid);
 		if (pointDiff < minDiff) {
 			minDiff = pointDiff;
 			closestTriangle = triangle;
@@ -249,7 +270,7 @@ NaviTriangle GetTriangleClosest(NaviTriangle triangles[trianglesSz], NaviTriangl
  * Uses barycentric coordinates, to interpret if the point falls inside or 
  * on triangle edges and vertices
  */
-bool pointInTriangleInterior(NaviTriangle triangle, Vector2 P) {
+bool PointInTriangleInterior(NaviTriangle triangle, Vector2 P) {
 	// choose an origin point for triangle v0, lets say vertex v1
 	Vector2 A = triangle.v1;
 	// compute vectors relative to origin point now
@@ -283,18 +304,106 @@ bool pointInTriangleInterior(NaviTriangle triangle, Vector2 P) {
  * * * if it exists independant of the player
  * * * * point is outside of the triangle
  */
-bool isPlayerInTriangle(NaviTriangle triangles[trianglesSz], NaviTriangle playerTriangle) {
+bool IsPlayerInTriangle(NaviTriangle triangles[trianglesSz], NaviTriangle playerTriangle) {
 	NaviTriangle closestTriangle = GetTriangleClosest(triangles, playerTriangle);
 	// for each player vertex check if it falls in triangle
 	// check if it falls on any point that is computed for our random triangle
 	Vector2 playerPoint = playerTriangle.v1;
-	bool isInside = pointInTriangleInterior(closestTriangle, playerPoint);
+	bool isInside = PointInTriangleInterior(closestTriangle, playerPoint);
 	playerPoint = playerTriangle.v2;
-	isInside = isInside || pointInTriangleInterior(closestTriangle, playerPoint);
+	isInside = isInside || PointInTriangleInterior(closestTriangle, playerPoint);
 	playerPoint = playerTriangle.v3;
-	isInside = isInside || pointInTriangleInterior(closestTriangle, playerPoint);
+	isInside = isInside || PointInTriangleInterior(closestTriangle, playerPoint);
 	
 	return isInside;
+}
+
+Vector2 RotationMult(Vector2 v, float phi) {
+	Vector2 rotVec;
+	rotVec.x = (cos(phi)*v.x) - (v.y*sin(phi));
+	rotVec.y = (sin(phi)*v.x) + (cos(phi)*v.y);
+	return rotVec;
+}
+
+float ComputeAngle(NaviTriangle triangle) {
+	Vector2 p = triangle.v2;
+	float theta = atan(p.y / p.x);
+	return RadToDeg(theta);
+}
+
+NaviTriangle RotateTriangleAboutOrigin(NaviTriangle triangle) {
+	if (triangle.hitMin && triangle.hitMax) return triangle;
+	Vector2 v1 = triangle.v1;
+	Vector2 v2 = triangle.v2;
+	Vector2 v3 = triangle.v3;
+
+	float phi = ((float)triangle.rotationDir)*rotationRate;
+	float theta1 = triangle.currentAngle + phi;
+	if (theta1 > maxAngle) {
+		triangle.hitMax = 1;
+		triangle.rotationDir = -1;
+		return triangle;
+	}
+	if (theta1 < minAngle) {
+		triangle.hitMin = 1;
+		triangle.rotationDir = 1;
+		return triangle;
+	}
+	// after here, all is fine, multiply with rotation matrix
+	triangle.v1 = RotationMult(v1, phi);
+	triangle.v2 = RotationMult(v2, phi);
+	triangle.v3 = RotationMult(v3, phi);
+	triangle.currentAngle = ComputeAngle(triangle);
+	return triangle;
+}
+
+/**
+ * Translate a trianle use a translation vector and a sign to represent operation type
+ * can be positive and negative
+ */
+NaviTriangle TranslateTriangleRelative(NaviTriangle triangle, Vector2 Vt, float opSign) {
+	Vector2 v1 = triangle.v1;
+	Vector2 v2 = triangle.v2;
+	Vector2 v3 = triangle.v3;
+	Vt = { opSign*Vt.x, opSign*Vt.y };
+	triangle.v1 = { v1.x + Vt.x, v1.y + Vt.y };
+	triangle.v2 = { v2.x + Vt.x, v2.y + Vt.y };
+	triangle.v3 = { v3.x + Vt.x, v3.y + Vt.y };
+	return triangle;
+}
+
+/**
+ * Function to handle Player Rotation about center
+ * Steps:
+ * Move triangle center to origin
+ * Rotate about center
+ * Move triangle back
+ */
+NaviTriangle HandlePlayerRotation(NaviTriangle player) {
+ 	Vector2 playerCentroid = ComputeTriangleCentroid(player);
+	NaviTriangle originPlayer = TranslateTriangleRelative(player, playerCentroid, TRANS_OP_SUB);
+	NaviTriangle rotatedPlayer = RotateTriangleAboutOrigin(originPlayer);
+	player = TranslateTriangleRelative(rotatedPlayer, playerCentroid, TRANS_OP_ADD);
+	return player;
+}
+
+/**
+ * Simple function to move player up and down
+ */
+void HandlePlayerMovement(NaviTriangle *player) {
+	Vector2 pinPoint = player->v2;
+	if (IsKeyDown(KEY_DOWN) && (pinPoint.y + 20 ) <= screenHeight) {
+		// move player down
+		(player->v1).y += player->movementRate;
+		(player->v2).y += player->movementRate;
+		(player->v3).y += player->movementRate;
+	}
+	if (IsKeyDown(KEY_UP) && (pinPoint.y - 20) >= 0 ) {
+		// move player up
+		(player->v1).y -= player->movementRate;
+		(player->v2).y -= player->movementRate;
+		(player->v3).y -= player->movementRate;
+	}
 }
 
 int main()
@@ -320,10 +429,11 @@ int main()
 	// need array of triangles [t, b, t, b, t, b, t, b] => 8*32 = 256 bytes NOICE! very binary
 	NaviTriangle triangles[trianglesSz];
 	// initializing triangle with null dim and inset, will randomize them
-	initializeTriangles(triangles);
+	InitializeTriangles(triangles);
 	NaviTriangle playerTriangle;
 	playerTriangle.draw = true;
 	playerTriangle.inset = -1;
+	playerTriangle.movementRate = 8;
 	playerTriangle.v1 = { 100, 100 };
 	playerTriangle.v2 = { 120, 115 };
 	playerTriangle.v3 = { 100, 130 };
@@ -335,26 +445,37 @@ int main()
 		//----------------------------------------------------------------------------------
 		// TODO: Update variables / Implement example logic at this point
 		//----------------------------------------------------------------------------------
+		isCollision = IsPlayerInTriangle(triangles, playerTriangle);
 		if (IsKeyPressed(KEY_SPACE)) {
 			// pause/resume game
 			gamePlay = !gamePlay;
 		}
 		if (gamePlay) {
-			trianglesMoveOrRecompute(triangles);
-			trianglesCheckDrawSpace(triangles);
+			// obstacles
+			TrianglesMoveOrRecompute(triangles);
+			TrianglesCheckDrawSpace(triangles);
+
+			// player
+			HandlePlayerMovement(&playerTriangle);
 		}
-		isCollision = isPlayerInTriangle(triangles, playerTriangle);
+		if (!gamePlay) {
+			if (playerTriangle.hitMin && playerTriangle.hitMax) {
+				gamePlay = true;
+				playerTriangle.hitMin = 0;
+				playerTriangle.hitMax = 0;
+			}
+			playerTriangle = HandlePlayerRotation(playerTriangle);
+		}
 		// Draw
 		//----------------------------------------------------------------------------------
 		BeginDrawing();
 		ClearBackground(DARKGRAY);
-		trianglesDraw(triangles);
+		TrianglesDraw(triangles);
 		if (isCollision) {
 			const char *status = "collision";
 			DrawText(status, (screenWidth/2), 10, 20, GREEN);
-
 		}
-		drawTriangle(&playerTriangle);
+		DrawTriangle(&playerTriangle);
 		// TODO: Draw everything that requires to be drawn at this point:
 		DrawFPS(0, 0);
 		EndDrawing();
