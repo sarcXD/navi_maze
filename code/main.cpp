@@ -246,9 +246,10 @@ NaviTriangle GetTriangleClosest(NaviTriangle triangles[trianglesSz], NaviTriangl
 
 /**
  * Compute if triangle is interior
- * @mark TODO: Understand barycentric maths to understand this function
+ * Uses barycentric coordinates, to interpret if the point falls inside or 
+ * on triangle edges and vertices
  */
-bool pointInTriangleInterior(NaviTriangle triangle, Vector2 playerPoint) {
+bool pointInTriangleInterior(NaviTriangle triangle, Vector2 P) {
 	// choose an origin point for triangle v0, lets say vertex v1
 	Vector2 A = triangle.v1;
 	// compute vectors relative to origin point now
@@ -256,17 +257,17 @@ bool pointInTriangleInterior(NaviTriangle triangle, Vector2 playerPoint) {
 	Vector2 B = { p1.x - A.x, p1.y - A.y };
 	Vector2 p2 = triangle.v3;
 	Vector2 C = { p2.x - A.x, p2.y - A.y };
-	Vector2 P = { playerPoint.x - A.x, playerPoint.y - A.y };
-	
-	float d = Det(B, C);
-	Vector2 CB = { B.x - C.x, B.y - C.y };
-	float w_a = (Det(P, CB) + Det(B, C)) / d;
-	float w_b = Det(P, C) / d;
-	float w_c = Det(B, P) / d;
-
-	// point is inside if all 0<= w_n <= 1
-	if ((w_a >= 0 && w_a <= 1) && (w_b >= 0 && w_b <= 1)
-		&& (w_c >= 0 && w_c <= 1)) {
+	/**
+	 * Self understood formula
+	 */
+	float beta = (Det(C, P) + Det(A, C)) / Det(C, B);
+	float gamma = (Det(B, P) + Det(A, B)) / Det(B, C);
+	/** beta >=0 and gamma >= 0 -- points in triangle
+	 * beta + gamma <= 1 -- satisfies condition that 'alpha' the weight we substituted out here
+	 * * is also >= 0
+	 * * alpha + beta + gamma = 1 - condition of the plane and barycentric coordinates
+	 */
+	if (beta >= 0 && gamma >= 0 && (beta + gamma) <= 1) {
 		return true;
 	}
 	return false;
@@ -277,7 +278,7 @@ bool pointInTriangleInterior(NaviTriangle triangle, Vector2 playerPoint) {
  * Using:
  * * Vertex Matching for triangle closest to player position:
  * * * If any point of player falls in the closest triangle
- * * * using triangle interior formula (https://mathworld.wolfram.com/TriangleInterior.html#:~:text=The%20simplest%20way%20to%20determine,it%20lies%20outside%20the%20triangle.),
+ * * * using triangle interior formula
  * * * We are checking here if the triangle with player point forms a convex hull for the triangle,
  * * * if it exists independant of the player
  * * * * point is outside of the triangle
@@ -349,7 +350,6 @@ int main()
 		ClearBackground(DARKGRAY);
 		trianglesDraw(triangles);
 		if (isCollision) {
-			//gamePlay = false;
 			const char *status = "collision";
 			DrawText(status, (screenWidth/2), 10, 20, GREEN);
 
