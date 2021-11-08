@@ -5,20 +5,32 @@
 #include <stdio.h>
 #include <time.h>
 
+#define Abs(x) (x < 0 ? x*-1: x)
+#define Square(x) (x*x)
+#define Det(u, v) ((u.x*v.y) - (u.y*v.x))
+#define Pi 3.141592653589793
+#define RadToDeg(rad) (rad*180/Pi)
+#define DegToRad(deg) (deg*Pi/180)
+
+#define ORIENT_TOP_BOT 0
+#define ORIENT_BOT_TOP 1
+#define TRANS_OP_SUB -1.0
+#define TRANS_OP_ADD 1.0
+
 /**
- * DONE:
- * Traingle generation
- * Verifying if point in triangle
- * 
- * Current:
- * Triangle rotation
- * 
- * TODO(talha)
- * Understanding how texture rendering works:
- * * Look into glfw since raylib uses glfw for any subsequent
- * * drawing as a means of using opengl
- * Understanding triangle coloring
- */
+	* DONE:
+	* Traingle generation
+	* Verifying if point in triangle
+	* 
+	* Current:
+	* Triangle rotation
+	* 
+	* TODO(talha)
+	* Understanding how texture rendering works:
+	* * Look into glfw since raylib uses glfw for any subsequent
+	* * drawing as a means of using opengl
+	* Understanding triangle coloring
+	*/
 const int screenWidth = 800;
 const int screenHeight = 450;
 // random triangle bounds
@@ -29,19 +41,9 @@ int triangleMaxWidth = (screenWidth / 4) + 50;
 int heightRange = triangleMaxHeight - triangleMinHeight;
 int widthRange = triangleMaxWidth - triangleMinWidth;
 const int trianglesSz = 8;
-float minAngle = -90;
-float maxAngle = 90;
+float minAngle = DegToRad(-120);
+float maxAngle = DegToRad(120);
 float rotationRate = .05;
-
-#define Abs(x) (x < 0 ? x*-1: x)
-#define Square(x) (x*x)
-#define Det(u, v) ((u.x*v.y) - (u.y*v.x))
-#define Pi 3.141592653589793
-#define RadToDeg(rad) (rad*180/Pi)
-#define ORIENT_TOP_BOT 0
-#define ORIENT_BOT_TOP 1
-#define TRANS_OP_SUB -1.0
-#define TRANS_OP_ADD 1.0
 
 /**
  * Note(Talha): 
@@ -64,8 +66,11 @@ struct NaviTriangle {
 	int rotationDir = -1; // which direction to rotate object
 	bool hitMin = false; // has object reached min angle in rotation
 	bool hitMax = false; // has object reached max angle in rotation
-	float currentAngle = 0;
-}; // 52 bytes
+	float currentAngle = DegToRad(0);
+
+	// things only for movement
+	float nextStep; // how much triangle should move vertically Depends on currentAngle
+}; // 54 bytes
 
 /**
  * NOTE(Talha) DDA Line Drawing Algorithm, SIMPLE VERSION
@@ -87,16 +92,16 @@ void DDALineDrawing(Vector2 startPoint, Vector2 endPoint) {
 	float x = startPoint.x;
 	float y = startPoint.y;
 	float y_k, x_k;
-	int steps = Abs(dy) > Abs(dx) ? Abs(dy) : Abs(dx);
-	float incX = dx / (float) steps;
-	float incY = dy / (float) steps;
-	int step = 0;
+	float steps = Abs(dy) > Abs(dx) ? Abs(dy) : Abs(dx);
+	float incX = dx / steps;
+	float incY = dy / steps;
+	float step = 0;
 	do {
 		y_k = y + incY;
 		x_k = x + incX;
 		y = y_k;
 		x = x_k;
-		DrawPixel(round(x), round(y), BLACK);
+		DrawPixel(x, y, BLACK);
 		step++;
 	} while (step < steps);
 }
@@ -158,9 +163,8 @@ void TrianglesDraw(NaviTriangle triangles[trianglesSz]) {
 }
 
 void RandomizeTriangleDim( NaviTriangle *triangle) {
-	
-	int rWidth = (rand() % widthRange) + triangleMinWidth;
-	int rHeight = (rand() % heightRange) + triangleMinHeight;
+	float rWidth = (rand() % widthRange) + triangleMinWidth;
+	float rHeight = (rand() % heightRange) + triangleMinHeight;
 	triangle->width = rWidth;
 	triangle->height = rHeight;
 }
@@ -325,10 +329,42 @@ Vector2 RotationMult(Vector2 v, float phi) {
 	return rotVec;
 }
 
+/**
+ * A self implementation of arctan2 specific to my game rotation
+ * fun note: reached to this myself through experimentation of quad values
+ * and fixing them for arctan results
+ */
+float ArcTan2(float y, float x) {
+	float theta = atan(y / x);
+	if (x >= 0 && y >= 0) {
+		return theta;
+	}
+	if (x < 0 && y >= 0) {
+		return Pi + theta;
+	}
+	if (x >= 0 && y < 0) {
+		return theta;
+	}
+	if (x < 0 && y < 0) {
+		return theta - Pi;
+	}
+}
+
+/**
+ * Computes the angle (in radians) of the main vector from origin
+ * Doing using atan2
+ */
 float ComputeAngle(NaviTriangle triangle) {
 	Vector2 p = triangle.v2;
-	float theta = atan(p.y / p.x);
-	return RadToDeg(theta);
+	float theta = ArcTan2(p.y,p.x);
+	return theta;
+}
+
+float ComputeNextStep(NaviTriangle triangle) {
+	Vector2 p = triangle.v2;
+	float speed = 5;
+	float step = speed*sin(triangle.currentAngle);
+	return step;
 }
 
 NaviTriangle RotateTriangleAboutOrigin(NaviTriangle triangle) {
@@ -354,6 +390,9 @@ NaviTriangle RotateTriangleAboutOrigin(NaviTriangle triangle) {
 	triangle.v2 = RotationMult(v2, phi);
 	triangle.v3 = RotationMult(v3, phi);
 	triangle.currentAngle = ComputeAngle(triangle);
+	// next Step would be the same as v2 (the main arrow/point of player triangle) y value, 
+	// when its translated to origin respect to its centroid
+	triangle.nextStep = ComputeNextStep(triangle);
 	return triangle;
 }
 
@@ -392,17 +431,12 @@ NaviTriangle HandlePlayerRotation(NaviTriangle player) {
  */
 void HandlePlayerMovement(NaviTriangle *player) {
 	Vector2 pinPoint = player->v2;
-	if (IsKeyDown(KEY_DOWN) && (pinPoint.y + 20 ) <= screenHeight) {
+	float nextPos = (pinPoint.y + player->nextStep);
+	if (nextPos <= screenHeight && nextPos >= 0) {
 		// move player down
-		(player->v1).y += player->movementRate;
-		(player->v2).y += player->movementRate;
-		(player->v3).y += player->movementRate;
-	}
-	if (IsKeyDown(KEY_UP) && (pinPoint.y - 20) >= 0 ) {
-		// move player up
-		(player->v1).y -= player->movementRate;
-		(player->v2).y -= player->movementRate;
-		(player->v3).y -= player->movementRate;
+		(player->v1).y += player->nextStep;
+		(player->v2).y += player->nextStep;
+		(player->v3).y += player->nextStep;
 	}
 }
 
@@ -433,7 +467,7 @@ int main()
 	NaviTriangle playerTriangle;
 	playerTriangle.draw = true;
 	playerTriangle.inset = -1;
-	playerTriangle.movementRate = 8;
+	playerTriangle.movementRate = .1;
 	playerTriangle.v1 = { 100, 100 };
 	playerTriangle.v2 = { 120, 115 };
 	playerTriangle.v3 = { 100, 130 };
@@ -446,9 +480,12 @@ int main()
 		// TODO: Update variables / Implement example logic at this point
 		//----------------------------------------------------------------------------------
 		isCollision = IsPlayerInTriangle(triangles, playerTriangle);
-		if (IsKeyPressed(KEY_SPACE)) {
+		if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
 			// pause/resume game
 			gamePlay = !gamePlay;
+			// reset player rotation state
+			playerTriangle.hitMin = 0;
+			playerTriangle.hitMax = 0;
 		}
 		if (gamePlay) {
 			// obstacles
