@@ -21,29 +21,33 @@
 	* DONE:
 	* Traingle generation
 	* Verifying if point in triangle
+	* Triangle rotation
 	* 
 	* Current:
-	* Triangle rotation
+	* Implement scoring system
 	* 
 	* TODO(talha)
 	* Understanding how texture rendering works:
 	* * Look into glfw since raylib uses glfw for any subsequent
 	* * drawing as a means of using opengl
 	* Understanding triangle coloring
+	* Implement increase in triangle speed with time
 	*/
 const int screenWidth = 800;
 const int screenHeight = 450;
 // random triangle bounds
-int triangleMinWidth = (screenHeight / 2) - 100;
-int triangleMaxHeight = (screenHeight / 2) + 100;
-int triangleMinHeight = (screenWidth / 4) - 50;
+int triangleMinWidth = (screenWidth / 4) - 50;
 int triangleMaxWidth = (screenWidth / 4) + 50;
+int triangleMinHeight = (screenHeight / 2) - 50;
+int triangleMaxHeight = (screenHeight / 2);
+
 int heightRange = triangleMaxHeight - triangleMinHeight;
 int widthRange = triangleMaxWidth - triangleMinWidth;
 const int trianglesSz = 8;
 float minAngle = DegToRad(-120);
 float maxAngle = DegToRad(120);
-float rotationRate = .05;
+float rotationRate = .07;
+float insetStep = 5;
 
 /**
  * Note(Talha): 
@@ -181,11 +185,25 @@ void InitializeTriangles(NaviTriangle triangles[trianglesSz]) {
 		triangle.draw = i == 0 ? true : false; // only draw the first triangle initially
 		RandomizeTriangleDim(&triangle);
 		triangle.inset = -triangle.width;
-		triangle.movementRate = 5;
+		triangle.movementRate = 2;
 		triangles[i] = triangle;
 		// flip dir
 		dir = !dir;
 	}
+}
+
+/**
+ * Initialize player at default location
+ */
+NaviTriangle InitializePlayerTriangle() {
+	NaviTriangle playerTriangle;
+	playerTriangle.draw = true;
+	playerTriangle.inset = -1;
+	playerTriangle.movementRate = .1;
+	playerTriangle.v1 = { 100, 100 };
+	playerTriangle.v2 = { 120, 115 };
+	playerTriangle.v3 = { 100, 130 };
+	return playerTriangle;
 }
 
 /**
@@ -200,7 +218,7 @@ void TrianglesMoveOrRecompute(NaviTriangle triangles[trianglesSz]) {
 		NaviTriangle triangle = triangles[i];
 		if (triangle.draw) {
 			if (triangle.inset < screenWidth) {
-				triangle.inset += triangle.movementRate;
+				triangle.inset += (triangle.movementRate + insetStep);
 			} else {
 				triangle.draw = false;
 				RandomizeTriangleDim(&triangle);
@@ -363,8 +381,22 @@ float ComputeAngle(NaviTriangle triangle) {
 float ComputeNextStep(NaviTriangle triangle) {
 	Vector2 p = triangle.v2;
 	float speed = 5;
-	float step = speed*sin(triangle.currentAngle);
+	float angle = triangle.currentAngle;
+	if (triangle.currentAngle > 90 && triangle.currentAngle < -90) {
+		angle = angle > 90 ? 180 - angle : -180 - angle;
+	}
+	float step = speed*sin(angle);
 	return step;
+}
+
+void ComputeInsetStep(NaviTriangle triangle) {
+	Vector2 p = triangle.v2;
+	float speed = 5;
+	float angle = triangle.currentAngle;
+	if (triangle.currentAngle > 90 && triangle.currentAngle < -90) {
+		angle = angle > 90 ? 180 - angle : -180 - angle;
+	}
+	insetStep = speed*cos(angle);
 }
 
 NaviTriangle RotateTriangleAboutOrigin(NaviTriangle triangle) {
@@ -393,6 +425,7 @@ NaviTriangle RotateTriangleAboutOrigin(NaviTriangle triangle) {
 	// next Step would be the same as v2 (the main arrow/point of player triangle) y value, 
 	// when its translated to origin respect to its centroid
 	triangle.nextStep = ComputeNextStep(triangle);
+	ComputeInsetStep(triangle);
 	return triangle;
 }
 
@@ -440,6 +473,33 @@ void HandlePlayerMovement(NaviTriangle *player) {
 	}
 }
 
+void PlayerInputHandler(NaviTriangle *playerTriangle, bool *gamePlay) {
+	// handle long precise rotation
+	if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+		// pause/resume game
+		*gamePlay = !*gamePlay;
+		// reset player rotation state
+		playerTriangle->hitMin = 0;
+		playerTriangle->hitMax = 0;
+		playerTriangle->rotationDir = -1;
+	}
+	if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+		// pause/resume game
+		*gamePlay = !*gamePlay;
+		// reset player rotation state
+		playerTriangle->hitMin = 0;
+		playerTriangle->hitMax = 0;
+		playerTriangle->rotationDir = 1;
+	}
+}
+
+/**
+ * Resets obstacles and player state
+ */
+void ResetGameState(NaviTriangle *playerTriangle, NaviTriangle triangles[trianglesSz]) {
+	InitializeTriangles(triangles);
+	*playerTriangle = InitializePlayerTriangle();
+}
 int main()
 {
 	// Initialization
@@ -447,15 +507,6 @@ int main()
 	InitWindow(screenWidth, screenHeight, "Navi(gate)Maze");
 	// TODO: Load resources / Initialize variables at this point
 	SetTargetFPS(60);
-	//--------------------------------------------------------------------------------------
-	/**
-	 * Random Triangle Coords Generation
-	 * width min: 80
-	 * width max: triangleMaxWidth;
-	 * height min: 100
-	 * height max: triangleMaxHeight;
-	 */
-	//--------------------------------------------------------------------------------------
 	// Main game loop
 	int frameCounter = 1;
 	srand(time(NULL)); // Seed RAND
@@ -464,13 +515,7 @@ int main()
 	NaviTriangle triangles[trianglesSz];
 	// initializing triangle with null dim and inset, will randomize them
 	InitializeTriangles(triangles);
-	NaviTriangle playerTriangle;
-	playerTriangle.draw = true;
-	playerTriangle.inset = -1;
-	playerTriangle.movementRate = .1;
-	playerTriangle.v1 = { 100, 100 };
-	playerTriangle.v2 = { 120, 115 };
-	playerTriangle.v3 = { 100, 130 };
+	NaviTriangle playerTriangle = InitializePlayerTriangle();
 	bool gamePlay = true;
 	bool isCollision = false;
 	while (!WindowShouldClose())    // Detect window close button or ESC key
@@ -480,13 +525,7 @@ int main()
 		// TODO: Update variables / Implement example logic at this point
 		//----------------------------------------------------------------------------------
 		isCollision = IsPlayerInTriangle(triangles, playerTriangle);
-		if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-			// pause/resume game
-			gamePlay = !gamePlay;
-			// reset player rotation state
-			playerTriangle.hitMin = 0;
-			playerTriangle.hitMax = 0;
-		}
+		PlayerInputHandler(&playerTriangle, &gamePlay);
 		if (gamePlay) {
 			// obstacles
 			TrianglesMoveOrRecompute(triangles);
@@ -511,6 +550,7 @@ int main()
 		if (isCollision) {
 			const char *status = "collision";
 			DrawText(status, (screenWidth/2), 10, 20, GREEN);
+			ResetGameState(&playerTriangle, triangles);
 		}
 		DrawTriangle(&playerTriangle);
 		// TODO: Draw everything that requires to be drawn at this point:
